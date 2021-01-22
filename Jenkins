@@ -1,0 +1,69 @@
+pipeline {
+    agent any
+    
+    environment {
+
+        PATH = "PATH;C:\\WINDOWS\\SYSTEM32"
+    
+    }
+    tools {
+        // Install the Maven version configured as "M3" and add it to the path.
+        maven "M3"
+    }
+
+    stages {
+        
+        stage('checkout code') {
+            steps {
+                checkout([
+                    $class: 'GitSCM', branches: [[name: '*/master']],
+                    userRemoteConfigs: [[url: 'https://prasad@bitbucket.org/<>/repertoire-sf-listener-plugin.git',credentialsId:'BitBucketRepo']]
+            ])
+            }
+        }
+        stage('Build') {
+            steps {
+                // Run Maven 
+                //cmd_exec("mvn clean install -Dmaven.test.skip=true")
+                //cmd_exec("echo %VERSION%")
+                script {
+                    def server = Artifactory.server 'ARN' // Setup in Jenkins : Manage Jenkins -> Configure System -> Artifactory (Server ID)
+                    def buildInfo = Artifactory.newBuildInfo()
+                    buildInfo.env.capture = true
+                    def rtMaven = Artifactory.newMavenBuild()
+                    rtMaven.tool = 'M3' // Setup in Jenkins : 
+                    rtMaven.deployer releaseRepo:'libs-release-local', snapshotRepo: 'libs-snapshot-local', server: server
+                    //rtMaven.resolver releaseRepo:'libs-release', snapshotRepo: 'libs-snapshot', server: server
+
+                    rtMaven.run pom: 'pom.xml', goals: 'clean install', buildInfo: buildInfo
+
+                    //buildInfo.retention maxBuilds: 10, maxDays: 7, deleteBuildArtifacts: true
+                    server.publishBuildInfo buildInfo
+                }
+               
+
+            }
+        }
+        stage('Run munit Tests') {
+            steps{
+                cmd_exec("mvn -Dmaven.test.failure.ignore=true test")
+            }
+        }
+        
+        stage('Deploy to CloudHub'){
+            environment {
+                ANYPOINT_CREDENTIALS = credentials('anypoint.credentials')
+            }
+            steps{
+                //deploy code to cloudHub
+                cmd_exec('echo "deploy code"')
+                //cmd_exec("mvn deploy -P cloudhub -Dmule.version=3.9.4 -Danypoint.username=%ANYPOINT_CREDENTIALS_USR% -Danypoint.password=%ANYPOINT_CREDENTIALS_PSW%")
+            }
+        }
+    }
+}
+
+
+def cmd_exec(command) {
+    return bat(returnStdout: true, script: "${command}").trim()
+}
